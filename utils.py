@@ -3,18 +3,11 @@ import os
 import pandas as pd
 from datetime import datetime
 
-# ===========================
-# Путь к базе (Cloud-safe)
-# ===========================
 def get_db_connection():
-    # В Streamlit Cloud используем временную папку /tmp
     db_path = os.path.join("/tmp", "signals.db")
     conn = sqlite3.connect(db_path, check_same_thread=False)
     return conn
 
-# ===========================
-# Сохранение сигналов в SQLite
-# ===========================
 def save_to_db(df):
     if df.empty:
         return
@@ -24,9 +17,6 @@ def save_to_db(df):
     df_to_save.to_sql("signals", conn, if_exists='append', index=False)
     conn.close()
 
-# ===========================
-# Загрузка последних сигналов
-# ===========================
 def load_from_db(limit=50):
     conn = get_db_connection()
     try:
@@ -37,8 +27,5 @@ def load_from_db(limit=50):
         conn.close()
     return df
 
-# ===========================
-# Форматирование времени для отображения
-# ===========================
 def format_display_time(timestamp):
     return timestamp.strftime('%H:%M - %d %b') if timestamp else ""
