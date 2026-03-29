@@ -1,11 +1,11 @@
 import streamlit as st
 import pandas as pd
-from GoogleNews import GoogleNews
 from transformers import pipeline
 import plotly.express as px
-import dateparser
 from datetime import datetime
 from utils import save_to_db, load_from_db, format_display_time
+from serpapi import GoogleSearch
+import dateparser
 
 st.set_page_config(
     page_title="VBI Terminal: Kazakhstan", 
@@ -23,7 +23,7 @@ if not SERP_API_KEY:
     st.stop()
 
 # ===========================
-# Model
+# Neural engine
 # ===========================
 @st.cache_resource
 def load_neural_engine():
@@ -31,46 +31,47 @@ def load_neural_engine():
 analyzer = load_neural_engine()
 
 # ===========================
-# Fetch Intelligence
+# Fetch intelligence via SerpAPI
 # ===========================
-def fetch_intelligence(query, region, depth, mode):
-    lang_set = 'en'
-    gn = GoogleNews(lang=lang_set, region=region)
-    gn.clear()
-    
+def fetch_intelligence(query, region, depth, mode, api_key):
     if mode == "Social Buzz (Risk)":
-        final_query = f'{query} scandal OR opinion OR review OR complaint OR leak OR reddit OR twitter'
-    else:
-        final_query = query
-
+        query = f"{query} scandal OR leak OR complaint OR opinion OR reddit OR twitter"
+    
+    params = {
+        "engine": "google",
+        "q": query,
+        "hl": "en",
+        "gl": region,
+        "api_key": api_key,
+        "tbm": "nws",
+        "num": depth
+    }
+    
     try:
-        gn.search(final_query)
-        results = gn.result()
-        if results and len(results) < depth:
-            try:
-                gn.getpage(2)
-                results = gn.result()
-            except Exception:
-                pass
-    except Exception:
+        search = GoogleSearch(params)
+        results = search.get_dict().get("news_results", [])
+    except Exception as e:
+        print(f"SerpAPI Error: {e}")
         return []
-
+    
     clean_data = []
     seen_titles = set()
-    for item in results[:depth]:
-        title = item.get('title', '')
+    for item in results:
+        title = item.get("title", "")
         if title in seen_titles: continue
         seen_titles.add(title)
-        raw_date = item.get('date', '')
+        
+        raw_date = item.get("date", "")
         parsed_date = dateparser.parse(raw_date) if raw_date else datetime.now()
-        source_label = item.get('media', 'Unknown Node')
-        if any(x in title.lower() for x in ['twitter', 'reddit', 'post', 'blog', 'users']):
+        source_label = item.get("source", "Unknown Node")
+        link = item.get("link", "#")
+        if any(x in title.lower() for x in ["twitter","reddit","post","blog","users"]):
             source_label = "Social/Forum"
         clean_data.append({
             "Timestamp": parsed_date,
             "Source": source_label,
             "Headline": title,
-            "Link": item.get('link', '#')
+            "Link": link
         })
     return clean_data
 
@@ -104,7 +105,7 @@ if st.button("INITIATE SCAN"):
         st.warning("⚠️ Please enter a target name.")
     else:
         with st.spinner(f"📡 Intercepting {source_mode} signals for '{target_query}'..."):
-            raw_data = fetch_intelligence(target_query, target_region, scan_depth, source_mode)
+            raw_data = fetch_intelligence(target_query, target_region, scan_depth, source_mode, SERP_API_KEY)
             if not raw_data:
                 st.error("No signals detected. Try a broader keyword or switch Source Layer.")
             else:
@@ -131,11 +132,11 @@ if st.button("INITIATE SCAN"):
                 save_to_db(df)
 
                 # Metrics
-                pos_count = len(df[df['Sentiment'] == "Positive"])
-                neg_count = len(df[df['Sentiment'] == "Negative"])
+                pos_count = len(df[df['Sentiment']=="Positive"])
+                neg_count = len(df[df['Sentiment']=="Negative"])
                 total_signals = len(df)
-                net_score = (pos_count - neg_count) / total_signals if total_signals > 0 else 0
-                rep_index = 50 + (net_score * 50)
+                net_score = (pos_count - neg_count)/total_signals if total_signals>0 else 0
+                rep_index = 50 + (net_score*50)
 
                 c1, c2, c3, c4 = st.columns(4)
                 c1.metric("Reputation Index", f"{round(rep_index,1)}%", delta=f"{source_mode} Mode")
@@ -151,15 +152,15 @@ if st.button("INITIATE SCAN"):
                                      color_discrete_map={"Positive":"#10b981","Negative":"#ef4444","Neutral":"#64748b"})
                     fig_pie.update_layout(paper_bgcolor='rgba(0,0,0,0)', font_color="#e2e8f0")
                     st.plotly_chart(fig_pie, use_container_width=True)
-
                 with g2:
                     risk_counts = df['Risk Category'].value_counts().reset_index()
-                    risk_counts.columns = ['Risk', 'Count']
+                    risk_counts.columns = ['Risk','Count']
                     fig_bar = px.bar(risk_counts, x='Count', y='Risk', orientation='h', title="Risk Classification",
                                      color='Risk', color_discrete_sequence=px.colors.qualitative.Bold)
                     fig_bar.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color="#e2e8f0")
                     st.plotly_chart(fig_bar, use_container_width=True)
 
+                # Live log
                 st.subheader("📡 Live Intelligence Log")
                 display_df = df[['DisplayTime','Source','Headline','Risk Category','Sentiment']].copy()
                 def sentiment_color(val):
