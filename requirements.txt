@@ -1,0 +1,9 @@
+streamlit
+pandas
+google-search-results
+transformers
+torch
+plotly
+dateparser
+accelerate
+sentencepiece
