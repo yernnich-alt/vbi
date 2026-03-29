@@ -3,9 +3,9 @@ import pandas as pd
 from transformers import pipeline
 import plotly.express as px
 from datetime import datetime
-from utils import save_to_db, load_from_db, format_display_time
-from serpapi import GoogleSearch
+from utils import save_to_db, format_display_time
 import dateparser
+import importlib
 
 st.set_page_config(
     page_title="VBI Terminal: Kazakhstan", 
@@ -20,6 +20,16 @@ st.set_page_config(
 SERP_API_KEY = st.secrets.get("SERPAPI_KEY")
 if not SERP_API_KEY:
     st.error("🚨 SERPAPI_KEY not found. Add it in Secrets.")
+    st.stop()
+
+# ===========================
+# Dynamic import SerpAPI
+# ===========================
+try:
+    serpapi_module = importlib.import_module("serpapi")
+    GoogleSearch = serpapi_module.GoogleSearch
+except Exception as e:
+    st.error(f"Cannot import SerpAPI: {e}")
     st.stop()
 
 # ===========================
