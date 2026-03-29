@@ -1,196 +1,173 @@
 import streamlit as st
 import pandas as pd
-from serpapi import GoogleSearch
+from GoogleNews import GoogleNews
 from transformers import pipeline
 import plotly.express as px
-from datetime import datetime
 import dateparser
-import sqlite3
+from datetime import datetime
+from utils import save_to_db, load_from_db, format_display_time
 
-# ---------------- CONFIG ----------------
-st.set_page_config(page_title="VBI Terminal PRO MAX", layout="wide")
+st.set_page_config(
+    page_title="VBI Terminal: Kazakhstan", 
+    page_icon="🛡️", 
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-import os
-SERP_API_KEY = os.getenv("SERPAPI_KEY")
-DB_PATH = "vbi_history.db"
+# ===========================
+# SerpAPI Key
+# ===========================
+SERP_API_KEY = st.secrets.get("SERPAPI_KEY")
+if not SERP_API_KEY:
+    st.error("🚨 SERPAPI_KEY not found. Add it in Secrets.")
+    st.stop()
 
-# ---------------- DATABASE ----------------
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS signals
-                 (time TEXT, source TEXT, headline TEXT, sentiment TEXT, risk TEXT, risk_score REAL)''')
-    conn.commit()
-    conn.close()
-
-init_db()
-
-# ---------------- MODELS ----------------
+# ===========================
+# Model
+# ===========================
 @st.cache_resource
-def load_models():
-    sentiment = pipeline("sentiment-analysis", model="cardiffnlp/twitter-roberta-base-sentiment")
-    classifier = pipeline("zero-shot-classification", model="facebook/bart-large-mnli")
-    return sentiment, classifier
+def load_neural_engine():
+    return pipeline("zero-shot-classification", model="facebook/bart-large-mnli")
+analyzer = load_neural_engine()
 
-sentiment_model, classifier = load_models()
-
-# ---------------- DATA FETCH ----------------
-def fetch_data(query, region, depth, mode):
-    params = {
-        "engine": "google",
-        "q": query,
-        "gl": region.lower(),
-        "hl": "en",
-        "api_key": SERP_API_KEY
-    }
-
-    if mode == "Corporate News":
-        params["tbm"] = "nws"
+# ===========================
+# Fetch Intelligence
+# ===========================
+def fetch_intelligence(query, region, depth, mode):
+    lang_set = 'en'
+    gn = GoogleNews(lang=lang_set, region=region)
+    gn.clear()
+    
+    if mode == "Social Buzz (Risk)":
+        final_query = f'{query} scandal OR opinion OR review OR complaint OR leak OR reddit OR twitter'
     else:
-        params["q"] += " scandal OR complaint OR review OR reddit OR twitter"
+        final_query = query
 
-    search = GoogleSearch(params)
-    results = search.get_dict()
+    try:
+        gn.search(final_query)
+        results = gn.result()
+        if results and len(results) < depth:
+            try:
+                gn.getpage(2)
+                results = gn.result()
+            except Exception:
+                pass
+    except Exception:
+        return []
 
-    data = []
-    for item in results.get("news_results", [])[:depth]:
-        parsed_date = dateparser.parse(item.get("date")) if item.get("date") else datetime.now()
-
-        data.append({
-            "Time": parsed_date,
-            "Source": item.get("source", "Unknown"),
-            "Headline": item.get("title"),
-            "Link": item.get("link")
+    clean_data = []
+    seen_titles = set()
+    for item in results[:depth]:
+        title = item.get('title', '')
+        if title in seen_titles: continue
+        seen_titles.add(title)
+        raw_date = item.get('date', '')
+        parsed_date = dateparser.parse(raw_date) if raw_date else datetime.now()
+        source_label = item.get('media', 'Unknown Node')
+        if any(x in title.lower() for x in ['twitter', 'reddit', 'post', 'blog', 'users']):
+            source_label = "Social/Forum"
+        clean_data.append({
+            "Timestamp": parsed_date,
+            "Source": source_label,
+            "Headline": title,
+            "Link": item.get('link', '#')
         })
+    return clean_data
 
-    return data
+# ===========================
+# Sidebar
+# ===========================
+with st.sidebar:
+    st.header("🛰️ MONITORING CONFIG")
+    st.write("Target Region: **Kazakhstan (KZ)**")
+    target_region = st.selectbox("Geo-Location Node", ["KZ", "US", "GB", "RU"], index=0)
+    st.divider()
+    source_mode = st.radio(
+        "Select Signal Type:",
+        ["Corporate News", "Social Buzz (Risk)"],
+        captions=["Official Media & PR", "Opinions, Scandals & Noise"]
+    )
+    scan_depth = st.slider("Signal Depth (Items)", 10, 50, 30)
+    st.divider()
+    st.info(f"System Status: **ONLINE**\n\nActive Mode: {source_mode}")
 
-# ---------------- ANALYSIS ----------------
-def analyze(data):
-    processed = []
+# ===========================
+# Main UI
+# ===========================
+st.title("🛡️ VBI: Real-Time Reputation Monitor")
+st.markdown("Automated OSINT & Risk Categorization System")
 
-    risk_labels = [
-        "Legal Risk",
-        "Financial Risk",
-        "Technical Failure",
-        "PR Crisis",
-        "Market Growth"
-    ]
+target_query = st.text_input("TARGET ENTITY (e.g. Air Astana, Kaspi, KMG):", placeholder="Enter brand name...")
 
-    for item in data:
-        text = item["Headline"]
-
-        sent = sentiment_model(text)[0]
-        label = sent['label']
-
-        if label == "LABEL_0":
-            sentiment = "Negative"
-        elif label == "LABEL_2":
-            sentiment = "Positive"
-        else:
-            sentiment = "Neutral"
-
-        risk = classifier(text, candidate_labels=risk_labels)
-
-        processed.append({
-            "Time": item["Time"],
-            "Source": item["Source"],
-            "Headline": text,
-            "Sentiment": sentiment,
-            "Risk": risk['labels'][0],
-            "RiskScore": risk['scores'][0]
-        })
-
-    return pd.DataFrame(processed)
-
-# ---------------- SAVE HISTORY ----------------
-def save_to_db(df):
-    conn = sqlite3.connect(DB_PATH)
-    df_to_save = df.copy()
-    df_to_save['Time'] = df_to_save['Time'].astype(str)
-    df_to_save.to_sql("signals", conn, if_exists='append', index=False)
-    conn.close()
-
-# ---------------- LOAD HISTORY ----------------
-def load_history():
-    conn = sqlite3.connect(DB_PATH)
-    df = pd.read_sql("SELECT * FROM signals", conn)
-    conn.close()
-    if not df.empty:
-        df['Time'] = pd.to_datetime(df['Time'])
-    return df
-
-# ---------------- UI ----------------
-st.title("🛡️ VBI Terminal PRO MAX")
-
-query = st.text_input("Target (Company / Brand)")
-region = st.selectbox("Region", ["KZ", "US", "GB", "RU"])
-mode = st.radio("Mode", ["Corporate News", "Social Buzz"])
-depth = st.slider("Depth", 10, 50, 20)
-
-if st.button("🚀 SCAN"):
-    if not query:
-        st.warning("Enter target")
+if st.button("INITIATE SCAN"):
+    if not target_query:
+        st.warning("⚠️ Please enter a target name.")
     else:
-        with st.spinner("Running OSINT scan..."):
-            raw = fetch_data(query, region, depth, mode)
-
-            if not raw:
-                st.error("No data found")
+        with st.spinner(f"📡 Intercepting {source_mode} signals for '{target_query}'..."):
+            raw_data = fetch_intelligence(target_query, target_region, scan_depth, source_mode)
+            if not raw_data:
+                st.error("No signals detected. Try a broader keyword or switch Source Layer.")
             else:
-                df = analyze(raw)
-                df = df.sort_values(by="Time", ascending=False)
+                processed_data = []
+                risk_vectors = ["Legal/Compliance", "Financial Risk", "Technical Failure", "Market Expansion", "PR Crisis"]
+                sentiment_cats = ["Positive", "Negative", "Neutral"]
 
+                for i, item in enumerate(raw_data):
+                    risk_out = analyzer(item['Headline'], candidate_labels=risk_vectors)
+                    sent_out = analyzer(item['Headline'], candidate_labels=sentiment_cats)
+                    processed_data.append({
+                        "Time": item['Timestamp'],
+                        "DisplayTime": item['Timestamp'].strftime('%H:%M - %d %b'),
+                        "Source": item['Source'],
+                        "Headline": item['Headline'],
+                        "Risk Category": risk_out['labels'][0],
+                        "Risk Score": risk_out['scores'][0],
+                        "Sentiment": sent_out['labels'][0]
+                    })
+
+                df = pd.DataFrame(processed_data).sort_values(by='Time', ascending=False)
+
+                # Save signals safely
                 save_to_db(df)
 
-                # METRICS
-                pos = len(df[df.Sentiment == "Positive"])
-                neg = len(df[df.Sentiment == "Negative"])
-                total = len(df)
-
-                rep = 50
-                if total > 0:
-                    rep = 50 + ((pos - neg) / total) * 50
+                # Metrics
+                pos_count = len(df[df['Sentiment'] == "Positive"])
+                neg_count = len(df[df['Sentiment'] == "Negative"])
+                total_signals = len(df)
+                net_score = (pos_count - neg_count) / total_signals if total_signals > 0 else 0
+                rep_index = 50 + (net_score * 50)
 
                 c1, c2, c3, c4 = st.columns(4)
-                c1.metric("Reputation", f"{round(rep,1)}%")
-                c2.metric("Signals", total)
-                c3.metric("Positive", pos)
-                c4.metric("Negative", neg)
+                c1.metric("Reputation Index", f"{round(rep_index,1)}%", delta=f"{source_mode} Mode")
+                c2.metric("Total Signals", total_signals)
+                c3.metric("Positive Coverage", pos_count)
+                c4.metric("Active Threats", neg_count, delta_color="inverse")
 
-                # ALERT
-                if total > 0 and (neg / total) > 0.4:
-                    st.error("🚨 ALERT: Reputation Risk Spike")
+                # Charts
+                g1, g2 = st.columns([1,1])
+                with g1:
+                    fig_pie = px.pie(df, names='Sentiment', hole=0.5, title="Sentiment Share",
+                                     color='Sentiment',
+                                     color_discrete_map={"Positive":"#10b981","Negative":"#ef4444","Neutral":"#64748b"})
+                    fig_pie.update_layout(paper_bgcolor='rgba(0,0,0,0)', font_color="#e2e8f0")
+                    st.plotly_chart(fig_pie, use_container_width=True)
 
-                # CHARTS
-                st.subheader("Sentiment Distribution")
-                st.plotly_chart(px.pie(df, names="Sentiment"), use_container_width=True)
+                with g2:
+                    risk_counts = df['Risk Category'].value_counts().reset_index()
+                    risk_counts.columns = ['Risk', 'Count']
+                    fig_bar = px.bar(risk_counts, x='Count', y='Risk', orientation='h', title="Risk Classification",
+                                     color='Risk', color_discrete_sequence=px.colors.qualitative.Bold)
+                    fig_bar.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color="#e2e8f0")
+                    st.plotly_chart(fig_bar, use_container_width=True)
 
-                st.subheader("Risk Breakdown")
-                st.plotly_chart(px.histogram(df, y="Risk"), use_container_width=True)
+                st.subheader("📡 Live Intelligence Log")
+                display_df = df[['DisplayTime','Source','Headline','Risk Category','Sentiment']].copy()
+                def sentiment_color(val):
+                    color = '#10b981' if val=='Positive' else '#ef4444' if val=='Negative' else '#94a3b8'
+                    return f'color: {color}; font-weight: bold'
+                st.dataframe(display_df.style.map(sentiment_color, subset=['Sentiment']), use_container_width=True, hide_index=True)
 
-                st.subheader("Timeline")
-                st.plotly_chart(px.scatter(df, x="Time", y="Sentiment", color="Risk", hover_data=["Headline"]), use_container_width=True)
-
-                # DATA
-                st.subheader("Live Feed")
-                st.dataframe(df, use_container_width=True)
-
-# ---------------- HISTORY ----------------
-st.divider()
-st.subheader("📊 Historical Trends")
-
-history_df = load_history()
-
-if not history_df.empty:
-    history_df['date'] = history_df['Time'].dt.date
-    trend = history_df.groupby('date').size().reset_index(name='signals')
-
-    st.plotly_chart(px.line(trend, x='date', y='signals', title="Signal Volume Over Time"), use_container_width=True)
-else:
-    st.info("No historical data yet")
-
-# ---------------- DOWNLOAD ----------------
-if not history_df.empty:
-    csv = history_df.to_csv(index=False).encode()
-    st.download_button("Download Full History", csv, "vbi_full_history.csv", "text/csv")
+                # CSV Download
+                timestamp_str = datetime.now().strftime("%Y%m%d_%H%M")
+                csv = df.to_csv(index=False).encode('utf-8')
+                st.sidebar.download_button("📥 Download Full Audit (CSV)", csv, f"VBI_Report_{target_query}_{timestamp_str}.csv", "text/csv")
