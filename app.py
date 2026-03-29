@@ -5,9 +5,7 @@ import plotly.express as px
 from datetime import datetime
 from utils import save_to_db, format_display_time
 import dateparser
-
-# ✅ SerpAPI
-from serpapi import GoogleSearch  # теперь работает с серой версией 1.3.5
+import requests
 
 st.set_page_config(
     page_title="VBI Terminal: Kazakhstan", 
@@ -33,36 +31,38 @@ def load_neural_engine():
 analyzer = load_neural_engine()
 
 # ===========================
-# Fetch intelligence via SerpAPI
+# Fetch intelligence via SerpAPI HTTP
 # ===========================
 def fetch_intelligence(query, region, depth, mode, api_key):
     if mode == "Social Buzz (Risk)":
         query = f"{query} scandal OR leak OR complaint OR opinion OR reddit OR twitter"
-    
+
+    url = "https://serpapi.com/search.json"
     params = {
         "engine": "google",
         "q": query,
         "hl": "en",
         "gl": region,
-        "api_key": api_key,
         "tbm": "nws",
-        "num": depth
+        "num": depth,
+        "api_key": api_key
     }
-    
+
     try:
-        search = GoogleSearch(params)
-        results = search.get_dict().get("news_results", [])
+        resp = requests.get(url, params=params, timeout=20)
+        resp.raise_for_status()
+        results = resp.json().get("news_results", [])
     except Exception as e:
-        st.error(f"SerpAPI Error: {e}")
+        st.error(f"SerpAPI HTTP Error: {e}")
         return []
-    
+
     clean_data = []
     seen_titles = set()
     for item in results:
         title = item.get("title", "")
         if title in seen_titles: continue
         seen_titles.add(title)
-        
+
         raw_date = item.get("date", "")
         parsed_date = dateparser.parse(raw_date) if raw_date else datetime.now()
         source_label = item.get("source", "Unknown Node")
