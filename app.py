@@ -5,7 +5,9 @@ import plotly.express as px
 from datetime import datetime
 from utils import save_to_db, format_display_time
 import dateparser
-import importlib
+
+# ✅ SerpAPI
+from serpapi import GoogleSearch  # теперь работает с серой версией 1.3.5
 
 st.set_page_config(
     page_title="VBI Terminal: Kazakhstan", 
@@ -20,16 +22,6 @@ st.set_page_config(
 SERP_API_KEY = st.secrets.get("SERPAPI_KEY")
 if not SERP_API_KEY:
     st.error("🚨 SERPAPI_KEY not found. Add it in Secrets.")
-    st.stop()
-
-# ===========================
-# Dynamic import SerpAPI
-# ===========================
-try:
-    serpapi_module = importlib.import_module("serpapi")
-    GoogleSearch = serpapi_module.GoogleSearch
-except Exception as e:
-    st.error(f"Cannot import SerpAPI: {e}")
     st.stop()
 
 # ===========================
@@ -61,7 +53,7 @@ def fetch_intelligence(query, region, depth, mode, api_key):
         search = GoogleSearch(params)
         results = search.get_dict().get("news_results", [])
     except Exception as e:
-        print(f"SerpAPI Error: {e}")
+        st.error(f"SerpAPI Error: {e}")
         return []
     
     clean_data = []
@@ -123,7 +115,7 @@ if st.button("INITIATE SCAN"):
                 risk_vectors = ["Legal/Compliance", "Financial Risk", "Technical Failure", "Market Expansion", "PR Crisis"]
                 sentiment_cats = ["Positive", "Negative", "Neutral"]
 
-                for i, item in enumerate(raw_data):
+                for item in raw_data:
                     risk_out = analyzer(item['Headline'], candidate_labels=risk_vectors)
                     sent_out = analyzer(item['Headline'], candidate_labels=sentiment_cats)
                     processed_data.append({
@@ -177,6 +169,7 @@ if st.button("INITIATE SCAN"):
                     color = '#10b981' if val=='Positive' else '#ef4444' if val=='Negative' else '#94a3b8'
                     return f'color: {color}; font-weight: bold'
                 st.dataframe(display_df.style.map(sentiment_color, subset=['Sentiment']), use_container_width=True, hide_index=True)
+
                 # CSV Download
                 timestamp_str = datetime.now().strftime("%Y%m%d_%H%M")
                 csv = df.to_csv(index=False).encode('utf-8')
