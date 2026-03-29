@@ -4,6 +4,6 @@ transformers
 torch
 plotly
 dateparser
-serpapi
+requests
 accelerate
 sentencepiece
