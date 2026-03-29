@@ -177,7 +177,6 @@ if st.button("INITIATE SCAN"):
                     color = '#10b981' if val=='Positive' else '#ef4444' if val=='Negative' else '#94a3b8'
                     return f'color: {color}; font-weight: bold'
                 st.dataframe(display_df.style.map(sentiment_color, subset=['Sentiment']), use_container_width=True, hide_index=True)
-
                 # CSV Download
                 timestamp_str = datetime.now().strftime("%Y%m%d_%H%M")
                 csv = df.to_csv(index=False).encode('utf-8')
