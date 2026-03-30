@@ -14,9 +14,6 @@ st.set_page_config(
     layout="wide"
 )
 
-# ===========================
-# UI STYLE
-# ===========================
 st.markdown("""
 <style>
 .stApp {
@@ -58,17 +55,11 @@ div[data-testid="stMetric"] {
 </style>
 """, unsafe_allow_html=True)
 
-# ===========================
-# API KEY
-# ===========================
 SERP_API_KEY = st.secrets.get("SERPAPI_KEY")
 if not SERP_API_KEY:
     st.error("🚨 SERPAPI_KEY not found")
     st.stop()
 
-# ===========================
-# AI MODEL
-# ===========================
 @st.cache_resource
 def load_model():
     return pipeline("zero-shot-classification", model="facebook/bart-large-mnli")
@@ -78,9 +69,6 @@ analyzer = load_model()
 risk_vectors = ["Legal/Compliance", "Financial Risk", "Technical Failure", "Market Expansion", "PR Crisis"]
 sentiment_cats = ["Positive", "Negative", "Neutral"]
 
-# ===========================
-# FETCH DATA
-# ===========================
 def fetch_intelligence(query, region, depth, mode, api_key):
     if mode == "Social Buzz (Risk)":
         query = f"{query} scandal OR leak OR complaint OR opinion"
@@ -126,9 +114,6 @@ def fetch_intelligence(query, region, depth, mode, api_key):
 
     return []
 
-# ===========================
-# SIDEBAR
-# ===========================
 with st.sidebar:
     st.header("🛰️ CONFIG")
 
@@ -141,15 +126,9 @@ with st.sidebar:
 
     scan_depth = st.slider("Depth", 10, 50, 20)
 
-# ===========================
-# HEADER
-# ===========================
 st.markdown('<div class="main-title">🛡️ VBI INTELLIGENCE TERMINAL</div>', unsafe_allow_html=True)
 st.markdown('<div class="subtitle">Real-Time OSINT • AI Risk Detection</div>', unsafe_allow_html=True)
 
-# ===========================
-# INPUT
-# ===========================
 col1, col2 = st.columns([4,1])
 
 with col1:
@@ -158,9 +137,6 @@ with col1:
 with col2:
     scan = st.button("SCAN")
 
-# ===========================
-# MAIN LOGIC
-# ===========================
 if scan:
     if not query:
         st.warning("Enter query")
@@ -199,9 +175,6 @@ if scan:
 
         save_to_db(df)
 
-        # ===========================
-        # METRICS
-        # ===========================
         pos = len(df[df["Sentiment"]=="Positive"])
         neg = len(df[df["Sentiment"]=="Negative"])
         total = len(df)
@@ -216,9 +189,6 @@ if scan:
         c3.metric("🟢 Positive", pos)
         c4.metric("🔴 Negative", neg)
 
-        # ===========================
-        # CHARTS
-        # ===========================
         st.markdown('<div class="section"></div>', unsafe_allow_html=True)
 
         colA, colB = st.columns(2)
@@ -240,9 +210,7 @@ if scan:
             )
             st.plotly_chart(fig2, use_container_width=True)
 
-        # ===========================
-        # TABLE
-        # ===========================
+    
         st.markdown('<div class="section"></div>', unsafe_allow_html=True)
         st.subheader("📡 Live Feed")
 
@@ -255,8 +223,5 @@ if scan:
             hide_index=True
         )
 
-        # ===========================
-        # DOWNLOAD
-        # ===========================
         csv = df.to_csv(index=False).encode()
         st.download_button("⬇️ Export", csv)
