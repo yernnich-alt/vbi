@@ -33,9 +33,11 @@ analyzer = load_neural_engine()
 # ===========================
 # Fetch intelligence via SerpAPI HTTP
 # ===========================
+import time
+
 def fetch_intelligence(query, region, depth, mode, api_key):
     if mode == "Social Buzz (Risk)":
-        query = f"{query} scandal OR leak OR complaint OR opinion OR reddit OR twitter"
+        query = f"{query} scandal OR leak OR complaint OR opinion"
 
     url = "https://serpapi.com/search.json"
     params = {
@@ -48,13 +50,16 @@ def fetch_intelligence(query, region, depth, mode, api_key):
         "api_key": api_key
     }
 
-    try:
-        resp = requests.get(url, params=params, timeout=20)
-        resp.raise_for_status()
-        results = resp.json().get("news_results", [])
-    except Exception as e:
-        st.error(f"SerpAPI HTTP Error: {e}")
-        return []
+    for attempt in range(3):
+        try:
+            resp = requests.get(url, params=params, timeout=60)
+            resp.raise_for_status()
+            return resp.json().get("news_results", [])
+        except Exception as e:
+            print(f"Attempt {attempt+1} failed: {e}")
+            time.sleep(2)
+
+    return []
 
     clean_data = []
     seen_titles = set()
