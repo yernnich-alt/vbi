@@ -117,21 +117,28 @@ if st.button("INITIATE SCAN"):
                 st.error("No signals detected. Try a broader keyword or switch Source Layer.")
             else:
                 processed_data = []
-                risk_vectors = ["Legal/Compliance", "Financial Risk", "Technical Failure", "Market Expansion", "PR Crisis"]
-                sentiment_cats = ["Positive", "Negative", "Neutral"]
 
-                for item in raw_data:
-                    risk_out = analyzer(item['Headline'], candidate_labels=risk_vectors)
-                    sent_out = analyzer(item['Headline'], candidate_labels=sentiment_cats)
-                    processed_data.append({
-                        "Time": item['Timestamp'],
-                        "DisplayTime": item['Timestamp'].strftime('%H:%M - %d %b'),
-                        "Source": item['Source'],
-                        "Headline": item['Headline'],
-                        "Risk Category": risk_out['labels'][0],
-                        "Risk Score": risk_out['scores'][0],
-                        "Sentiment": sent_out['labels'][0]
-                    })
+for item in raw_data:
+    headline = item.get('Headline', '')
+
+    if not headline:
+        continue
+
+    risk_out = analyzer(headline, candidate_labels=risk_vectors)
+    sent_out = analyzer(headline, candidate_labels=sentiment_cats)
+
+    processed_data.append({
+        "Time": item.get('Timestamp'),
+        "DisplayTime": item.get('Timestamp').strftime('%H:%M - %d %b') if item.get('Timestamp') else '',
+        "Source": item.get('Source', ''),
+        "Headline": headline,
+        "Risk Category": risk_out['labels'][0],
+        "Risk Score": risk_out['scores'][0],
+        "Sentiment": sent_out['labels'][0]
+    })
+    if not processed_data:
+    st.warning("⚠️ No valid data after processing")
+    st.stop()
 
                 df = pd.DataFrame(processed_data).sort_values(by='Time', ascending=False)
 
