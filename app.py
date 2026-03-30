@@ -136,10 +136,7 @@ for item in raw_data:
         "Risk Score": risk_out['scores'][0],
         "Sentiment": sent_out['labels'][0]
     })
-    if not processed_data:
-    st.warning("⚠️ No valid data after processing")
-    st.stop()
-
+    
                 df = pd.DataFrame(processed_data).sort_values(by='Time', ascending=False)
 
                 # Save signals safely
