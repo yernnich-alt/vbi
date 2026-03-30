@@ -9,21 +9,65 @@ import requests
 import time
 
 st.set_page_config(
-    page_title="VBI Terminal: Kazakhstan",
+    page_title="VBI Terminal",
     page_icon="🛡️",
     layout="wide"
 )
+
+# ===========================
+# UI STYLE
+# ===========================
+st.markdown("""
+<style>
+.stApp {
+    background: radial-gradient(circle at top, #020617, #000000);
+    color: #e2e8f0;
+}
+
+.main-title {
+    font-size: 42px;
+    font-weight: 700;
+    color: #38bdf8;
+}
+.subtitle {
+    color: #94a3b8;
+    margin-bottom: 20px;
+}
+
+div[data-testid="stMetric"] {
+    background: rgba(15, 23, 42, 0.7);
+    border: 1px solid #1e293b;
+    border-radius: 14px;
+    padding: 20px;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 0 20px rgba(56,189,248,0.15);
+}
+
+.stButton button {
+    background: linear-gradient(90deg, #06b6d4, #3b82f6);
+    border-radius: 12px;
+    border: none;
+    color: white;
+    font-weight: 600;
+    height: 45px;
+}
+
+.section {
+    margin-top: 30px;
+}
+</style>
+""", unsafe_allow_html=True)
 
 # ===========================
 # API KEY
 # ===========================
 SERP_API_KEY = st.secrets.get("SERPAPI_KEY")
 if not SERP_API_KEY:
-    st.error("🚨 SERPAPI_KEY not found. Add it in Secrets.")
+    st.error("🚨 SERPAPI_KEY not found")
     st.stop()
 
 # ===========================
-# AI Model
+# AI MODEL
 # ===========================
 @st.cache_resource
 def load_model():
@@ -35,7 +79,7 @@ risk_vectors = ["Legal/Compliance", "Financial Risk", "Technical Failure", "Mark
 sentiment_cats = ["Positive", "Negative", "Neutral"]
 
 # ===========================
-# FETCH DATA (SerpAPI)
+# FETCH DATA
 # ===========================
 def fetch_intelligence(query, region, depth, mode, api_key):
     if mode == "Social Buzz (Risk)":
@@ -54,29 +98,27 @@ def fetch_intelligence(query, region, depth, mode, api_key):
 
     for _ in range(3):
         try:
-            response = requests.get(url, params=params, timeout=30)
-            response.raise_for_status()
-            data = response.json()
+            r = requests.get(url, params=params, timeout=30)
+            r.raise_for_status()
+            data = r.json()
 
             results = data.get("news_results", [])
-            clean_data = []
+            clean = []
 
             for item in results:
                 title = item.get("title", "")
                 if not title:
                     continue
 
-                raw_date = item.get("date", "")
-                parsed_date = dateparser.parse(raw_date) if raw_date else datetime.now()
+                parsed_date = dateparser.parse(item.get("date", "")) or datetime.now()
 
-                clean_data.append({
+                clean.append({
                     "Timestamp": parsed_date,
                     "Source": item.get("source", "Unknown"),
-                    "Headline": title,
-                    "Link": item.get("link", "#")
+                    "Headline": title
                 })
 
-            return clean_data
+            return clean
 
         except Exception as e:
             print("SerpAPI error:", e)
@@ -88,7 +130,7 @@ def fetch_intelligence(query, region, depth, mode, api_key):
 # SIDEBAR
 # ===========================
 with st.sidebar:
-    st.header("🛰️ MONITORING CONFIG")
+    st.header("🛰️ CONFIG")
 
     target_region = st.selectbox("Region", ["KZ", "US", "GB", "RU"], index=0)
 
@@ -100,70 +142,121 @@ with st.sidebar:
     scan_depth = st.slider("Depth", 10, 50, 20)
 
 # ===========================
-# MAIN
+# HEADER
 # ===========================
-st.title("🛡️ VBI OSINT Monitor")
+st.markdown('<div class="main-title">🛡️ VBI INTELLIGENCE TERMINAL</div>', unsafe_allow_html=True)
+st.markdown('<div class="subtitle">Real-Time OSINT • AI Risk Detection</div>', unsafe_allow_html=True)
 
-query = st.text_input("Enter company / brand")
+# ===========================
+# INPUT
+# ===========================
+col1, col2 = st.columns([4,1])
 
-if st.button("SCAN"):
+with col1:
+    query = st.text_input("🔎 Target Entity", placeholder="Kaspi, Air Astana...")
+
+with col2:
+    scan = st.button("SCAN")
+
+# ===========================
+# MAIN LOGIC
+# ===========================
+if scan:
     if not query:
         st.warning("Enter query")
         st.stop()
 
-    with st.spinner("Scanning..."):
-        raw_data = fetch_intelligence(query, target_region, scan_depth, source_mode, SERP_API_KEY)
+    with st.spinner("🛰️ Scanning..."):
+        raw = fetch_intelligence(query, target_region, scan_depth, source_mode, SERP_API_KEY)
 
-        if not raw_data:
+        if not raw:
             st.error("No data")
             st.stop()
 
-        processed_data = []
+        processed = []
 
-        for item in raw_data:
+        for item in raw:
             headline = item.get("Headline", "")
             if not headline:
                 continue
 
-            risk_out = analyzer(headline, candidate_labels=risk_vectors)
-            sent_out = analyzer(headline, candidate_labels=sentiment_cats)
+            risk = analyzer(headline, candidate_labels=risk_vectors)
+            sent = analyzer(headline, candidate_labels=sentiment_cats)
 
-            processed_data.append({
-                "Time": item.get("Timestamp"),
-                "Source": item.get("Source"),
+            processed.append({
+                "Time": item["Timestamp"],
+                "Source": item["Source"],
                 "Headline": headline,
-                "Risk": risk_out["labels"][0],
-                "Sentiment": sent_out["labels"][0]
+                "Risk": risk["labels"][0],
+                "Sentiment": sent["labels"][0]
             })
 
-        if not processed_data:
+        if not processed:
             st.warning("No valid data")
             st.stop()
 
-        df = pd.DataFrame(processed_data)
+        df = pd.DataFrame(processed)
 
-        # SAVE
         save_to_db(df)
 
+        # ===========================
         # METRICS
-        pos = len(df[df["Sentiment"] == "Positive"])
-        neg = len(df[df["Sentiment"] == "Negative"])
+        # ===========================
+        pos = len(df[df["Sentiment"]=="Positive"])
+        neg = len(df[df["Sentiment"]=="Negative"])
         total = len(df)
 
-        score = 50 + ((pos - neg) / total * 50)
+        score = 50 + ((pos - neg)/total * 50)
 
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Reputation", round(score, 1))
-        c2.metric("Signals", total)
-        c3.metric("Negative", neg)
+        st.markdown('<div class="section"></div>', unsafe_allow_html=True)
 
-        # CHART
-        fig = px.pie(df, names="Sentiment")
-        st.plotly_chart(fig)
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("🧠 Reputation", f"{round(score,1)}%")
+        c2.metric("📡 Signals", total)
+        c3.metric("🟢 Positive", pos)
+        c4.metric("🔴 Negative", neg)
 
+        # ===========================
+        # CHARTS
+        # ===========================
+        st.markdown('<div class="section"></div>', unsafe_allow_html=True)
+
+        colA, colB = st.columns(2)
+
+        with colA:
+            fig1 = px.pie(df, names="Sentiment", hole=0.6)
+            fig1.update_layout(paper_bgcolor="rgba(0,0,0,0)", font=dict(color="#e2e8f0"))
+            st.plotly_chart(fig1, use_container_width=True)
+
+        with colB:
+            rc = df["Risk"].value_counts().reset_index()
+            rc.columns = ["Risk","Count"]
+
+            fig2 = px.bar(rc, x="Count", y="Risk", orientation="h")
+            fig2.update_layout(
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                font=dict(color="#e2e8f0")
+            )
+            st.plotly_chart(fig2, use_container_width=True)
+
+        # ===========================
         # TABLE
-        st.dataframe(df)
+        # ===========================
+        st.markdown('<div class="section"></div>', unsafe_allow_html=True)
+        st.subheader("📡 Live Feed")
 
+        def color(val):
+            return f'color: {"#22c55e" if val=="Positive" else "#ef4444" if val=="Negative" else "#94a3b8"}; font-weight:bold'
+
+        st.dataframe(
+            df.style.map(color, subset=["Sentiment"]),
+            use_container_width=True,
+            hide_index=True
+        )
+
+        # ===========================
         # DOWNLOAD
+        # ===========================
         csv = df.to_csv(index=False).encode()
-        st.download_button("Download CSV", csv)
+        st.download_button("⬇️ Export", csv)
